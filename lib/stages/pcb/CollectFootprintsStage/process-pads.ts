@@ -1,4 +1,13 @@
-import type { PcbSmtPadCircle, PcbSmtPadRect } from "circuit-json"
+import type {
+  PcbSmtPadCircle,
+  PcbSmtPadRect,
+  PcbSmtPadPolygon,
+  PcbPlatedHoleCircle,
+  PcbPlatedHoleOval,
+  PcbHoleCircularWithRectPad,
+  PcbHoleRotatedPillWithRectPad,
+  PcbHoleCircle,
+} from "circuit-json"
 import type { Footprint } from "kicadts"
 import { applyToPoint } from "transformation-matrix"
 import type { ConverterContext } from "../../../types"
@@ -210,26 +219,22 @@ export function createSmdPad({
 
           for (const pt of ptsArray) {
             if (pt.x !== undefined && pt.y !== undefined) {
-              points.push({ x: pt.x, y: -pt.y })
+              points.push({ x: pos.x + pt.x, y: pos.y + -pt.y })
             }
           }
         }
 
         if (points.length > 0) {
           // Create polygon SMT pad
-          const smtpad: any = {
+          const smtpad: PcbSmtPadPolygon = {
             type: "pcb_smtpad",
             shape: "polygon",
             pcb_component_id: componentId,
             pcb_port_id: pcbPortId,
-            source_port_id: sourcePortId,
             layer: layer,
             port_hints: [pad.number?.toString()],
-            points: points.map((pt) => ({
-              x: pos.x + pt.x,
-              y: pos.y + pt.y,
-            })),
-          }
+            points: points,
+          } as any
 
           ctx.db.pcb_smtpad.insert(smtpad)
 
@@ -244,7 +249,7 @@ export function createSmdPad({
   }
 
   // Handle standard shapes (circle, rect, roundrect)
-  const smtpad: any = {
+  const baseSmtPad = {
     type: "pcb_smtpad",
     pcb_component_id: componentId,
     x: pos.x,
@@ -253,15 +258,38 @@ export function createSmdPad({
     height: size.y,
     layer: layer,
     pcb_port_id: pcbPortId,
-    source_port_id: sourcePortId,
     port_hints: [pad.number?.toString()],
   }
 
   if (shape === "circle") {
-    smtpad.shape = "circle"
-    ;(smtpad as PcbSmtPadCircle).radius = Math.max(size.x, size.y) / 2
+    const smtpad: PcbSmtPadCircle = {
+      type: "pcb_smtpad",
+      pcb_component_id: componentId,
+      pcb_smtpad_id: "pcb_smtpad_id",
+      x: pos.x,
+      y: pos.y,
+      width: size.x,
+      height: size.y,
+      layer: layer,
+      pcb_port_id: pcbPortId,
+      port_hints: [pad.number?.toString()],
+      shape: "circle",
+      radius: Math.max(size.x, size.y) / 2,
+    } as PcbSmtPadCircle
+    ctx.db.pcb_smtpad.insert(smtpad)
   } else if (shape === "rect" || shape === "roundrect") {
-    smtpad.shape = "rect"
+    const smtpad: PcbSmtPadRect = {
+      type: "pcb_smtpad",
+      pcb_component_id: componentId,
+      x: pos.x,
+      y: pos.y,
+      width: size.x,
+      height: size.y,
+      layer: layer,
+      pcb_port_id: pcbPortId,
+      port_hints: [pad.number?.toString()],
+      shape: "rect",
+    } as PcbSmtPadRect
 
     const roundrectRatio = pad._sxRoundrectRatio?.value ?? pad.roundrect_rratio
     if (shape === "roundrect" && roundrectRatio !== undefined) {
@@ -269,14 +297,24 @@ export function createSmdPad({
       // Formula: corner_radius = min(width, height) * roundrect_rratio / 2
       const minDimension = Math.min(size.x, size.y)
       const cornerRadius = (minDimension * roundrectRatio) / 2
-      ;(smtpad as PcbSmtPadRect).corner_radius = cornerRadius
+      smtpad.corner_radius = cornerRadius
     }
+    ctx.db.pcb_smtpad.insert(smtpad)
   } else {
     // Default to rect for unknown shapes
-    ;(smtpad as PcbSmtPadRect).shape = "rect"
+    ctx.db.pcb_smtpad.insert({
+      type: "pcb_smtpad",
+      pcb_component_id: componentId,
+      x: pos.x,
+      y: pos.y,
+      width: size.x,
+      height: size.y,
+      layer: layer,
+      pcb_port_id: pcbPortId,
+      port_hints: [pad.number?.toString()],
+      shape: "rect",
+    } as PcbSmtPadRect)
   }
-
-  ctx.db.pcb_smtpad.insert(smtpad)
 
   if (ctx.stats) {
     ctx.stats.pads = (ctx.stats.pads || 0) + 1
@@ -336,67 +374,102 @@ export function createPlatedHole(
   }
 
   // Build plated hole object based on shape
-  const platedHole: any = {
-    pcb_component_id: componentId,
-    pcb_port_id: pcbPortId,
-    source_port_id: sourcePortId,
-    x: pos.x,
-    y: pos.y,
-    port_hints: [pad.number?.toString()],
-  }
-
   if (shape === "circle") {
     // Circular pad with circular hole
-    platedHole.shape = "circle"
-    platedHole.hole_diameter = holeDiameter
-    platedHole.outer_diameter = Math.max(outerWidth, outerHeight)
-    platedHole.layers = ["top", "bottom"]
+    const platedHole: PcbPlatedHoleCircle = {
+      type: "pcb_plated_hole",
+      shape: "circle",
+      pcb_component_id: componentId,
+      pcb_port_id: pcbPortId,
+      x: pos.x,
+      y: pos.y,
+      port_hints: [pad.number?.toString()],
+      hole_diameter: holeDiameter,
+      outer_diameter: Math.max(outerWidth, outerHeight),
+      layers: ["top", "bottom"],
+    } as PcbPlatedHoleCircle
+    ctx.db.pcb_plated_hole.insert(platedHole)
   } else if (shape === "oval") {
     // Oval/pill-shaped pad with circular hole
-    platedHole.shape = "pill"
-    platedHole.hole_width = holeDiameter // Circular hole: width = height
-    platedHole.hole_height = holeDiameter
-    platedHole.outer_width = outerWidth
-    platedHole.outer_height = outerHeight
-    platedHole.hole_ccw_rotation = pad.at?.angle
-    platedHole.layers = ["top", "bottom"]
+    const platedHole: PcbPlatedHoleOval = {
+      type: "pcb_plated_hole",
+      shape: "pill",
+      pcb_component_id: componentId,
+      pcb_port_id: pcbPortId,
+      x: pos.x,
+      y: pos.y,
+      port_hints: [pad.number?.toString()],
+      hole_width: holeDiameter, // Circular hole: width = height
+      hole_height: holeDiameter,
+      outer_width: outerWidth,
+      outer_height: outerHeight,
+      ccw_rotation: pad.at?.angle || 0,
+      layers: ["top", "bottom"],
+    } as PcbPlatedHoleOval
+    ctx.db.pcb_plated_hole.insert(platedHole)
   } else if (shape === "rect" || shape === "square" || shape === "roundrect") {
     // Rectangular pad with circular hole
     if (drillIsOval) {
-      platedHole.shape = "rotated_pill_hole_with_rect_pad"
-      platedHole.hole_shape = "rotated_pill"
-      platedHole.pad_shape = "rect"
-      platedHole.hole_width = drillY
-      platedHole.hole_height = drillX
-      platedHole.hole_ccw_rotation = pad.at?.angle
-      platedHole.rect_ccw_rotation = pad.at?.angle
-      // For rotated pill holes, use swapped pad dimensions to match
-      // KiCad's rendered orientation in circuit-json.
-      platedHole.rect_pad_width = outerWidth
-      platedHole.rect_pad_height = outerHeight
-    } else {
-      platedHole.shape = "circular_hole_with_rect_pad"
-      platedHole.hole_shape = "circle"
-      platedHole.pad_shape = "rect"
-      platedHole.hole_diameter = holeDiameter
-      platedHole.rect_ccw_rotation = pad.at?.angle
-      platedHole.rect_pad_width = outerWidth
-      platedHole.rect_pad_height = outerHeight
-    }
-    if (shape === "roundrect") {
-      const roundrectRatio =
-        pad._sxRoundrectRatio?.value ?? pad.roundrect_rratio
-      if (roundrectRatio !== undefined) {
-        const minDimension = Math.min(outerWidth, outerHeight)
-        platedHole.rect_border_radius = (minDimension * roundrectRatio) / 2
+      const platedHole: PcbHoleRotatedPillWithRectPad = {
+        type: "pcb_plated_hole",
+        shape: "rotated_pill_hole_with_rect_pad",
+        pcb_component_id: componentId,
+        pcb_port_id: pcbPortId,
+        x: pos.x,
+        y: pos.y,
+        port_hints: [pad.number?.toString()],
+        hole_shape: "rotated_pill",
+        pad_shape: "rect",
+        hole_width: drillY,
+        hole_height: drillX,
+        hole_ccw_rotation: pad.at?.angle || 0,
+        rect_ccw_rotation: pad.at?.angle || 0,
+        rect_pad_width: outerWidth,
+        rect_pad_height: outerHeight,
+        hole_offset_x: 0,
+        hole_offset_y: 0,
+        layers: ["top", "bottom"],
+      } as PcbHoleRotatedPillWithRectPad
+      if (shape === "roundrect") {
+        const roundrectRatio =
+          pad._sxRoundrectRatio?.value ?? pad.roundrect_rratio
+        if (roundrectRatio !== undefined) {
+          const minDimension = Math.min(outerWidth, outerHeight)
+          platedHole.rect_border_radius = (minDimension * roundrectRatio) / 2
+        }
       }
+      ctx.db.pcb_plated_hole.insert(platedHole)
+    } else {
+      const platedHole: PcbHoleCircularWithRectPad = {
+        type: "pcb_plated_hole",
+        shape: "circular_hole_with_rect_pad",
+        pcb_component_id: componentId,
+        pcb_port_id: pcbPortId,
+        pcb_plated_hole_id: "pcb_plated_hole_id",
+        x: pos.x,
+        y: pos.y,
+        port_hints: [pad.number?.toString()],
+        hole_shape: "circle",
+        pad_shape: "rect",
+        hole_diameter: holeDiameter,
+        rect_ccw_rotation: pad.at?.angle || 0,
+        rect_pad_width: outerWidth,
+        rect_pad_height: outerHeight,
+        hole_offset_x: 0,
+        hole_offset_y: 0,
+        layers: ["top", "bottom"],
+      } as PcbHoleCircularWithRectPad
+      if (shape === "roundrect") {
+        const roundrectRatio =
+          pad._sxRoundrectRatio?.value ?? pad.roundrect_rratio
+        if (roundrectRatio !== undefined) {
+          const minDimension = Math.min(outerWidth, outerHeight)
+          platedHole.rect_border_radius = (minDimension * roundrectRatio) / 2
+        }
+      }
+      ctx.db.pcb_plated_hole.insert(platedHole)
     }
-    platedHole.hole_offset_x = 0
-    platedHole.hole_offset_y = 0
-    platedHole.layers = ["top", "bottom"]
   }
-
-  ctx.db.pcb_plated_hole.insert(platedHole)
 
   if (ctx.stats) {
     ctx.stats.pads = (ctx.stats.pads || 0) + 1
@@ -415,10 +488,13 @@ export function createNpthHole(
 ) {
   const holeDiameter = drill?.diameter || drill || 1.0
 
-  ctx.db.pcb_hole.insert({
+  const hole: PcbHoleCircle = {
+    type: "pcb_hole",
+    hole_shape: "circle",
     x: pos.x,
     y: pos.y,
     hole_diameter: holeDiameter,
-    hole_shape: "circle",
-  } as any)
+  } as PcbHoleCircle
+
+  ctx.db.pcb_hole.insert(hole)
 }
