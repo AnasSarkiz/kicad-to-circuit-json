@@ -234,7 +234,7 @@ export function createSmdPad({
             layer: layer,
             port_hints: [pad.number?.toString()],
             points: points,
-          } as any
+          } as PcbSmtPadPolygon
 
           ctx.db.pcb_smtpad.insert(smtpad)
 
