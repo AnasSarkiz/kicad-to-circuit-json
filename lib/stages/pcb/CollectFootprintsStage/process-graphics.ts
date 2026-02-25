@@ -1,4 +1,4 @@
-import type { Footprint } from "kicadts"
+import type { Footprint, FpPoly } from "kicadts"
 import { applyToPoint } from "transformation-matrix"
 import type { ConverterContext } from "../../../types"
 import { mapTextLayer } from "./layer-utils"
@@ -67,6 +67,19 @@ export function processFootprintGraphics(
     createFootprintArc(
       ctx,
       arc,
+      componentId,
+      kicadComponentPos,
+      componentRotation,
+    )
+  }
+
+  // Process fp_poly elements
+  const polys = footprint.fpPolys || []
+  const polyArray = Array.isArray(polys) ? polys : polys ? [polys] : []
+  for (const poly of polyArray) {
+    createFootprintPoly(
+      ctx,
+      poly,
       componentId,
       kicadComponentPos,
       componentRotation,
@@ -320,6 +333,46 @@ export function createFootprintArc(
     pcb_component_id: componentId,
     layer: layer,
     route: arcRoute,
+    stroke_width: strokeWidth,
+  })
+}
+
+export function createFootprintPoly(
+  ctx: ConverterContext,
+  poly: FpPoly,
+  componentId: string,
+  kicadComponentPos: { x: number; y: number },
+  componentCcwRotationDegrees: number,
+) {
+  if (!ctx.k2cMatPcb) return
+
+  // Extract points
+  const ptArray: any[] = poly.points?.points || []
+  if (ptArray.length === 0) return
+
+  // Extract layer
+  const layer = mapTextLayer(poly.layer)
+
+  // Extract stroke width
+  const strokeWidth = poly.stroke?.width || poly.width || 0.12
+
+  // Map and transform points
+  const transformedPts = ptArray.map((p: any) => {
+    // Handle both {x, y} and {xy: {x, y}} or {token: 'xy', x, y}
+    const x = p.x ?? p.xy?.x ?? 0
+    const y = p.y ?? p.xy?.y ?? 0
+    const rotated = rotatePoint(x, y, -componentCcwRotationDegrees)
+    const kicadPos = {
+      x: kicadComponentPos.x + rotated.x,
+      y: kicadComponentPos.y + rotated.y,
+    }
+    return applyToPoint(ctx.k2cMatPcb!, kicadPos)
+  })
+
+  ctx.db.pcb_silkscreen_path.insert({
+    pcb_component_id: componentId,
+    layer: layer,
+    route: transformedPts,
     stroke_width: strokeWidth,
   })
 }
