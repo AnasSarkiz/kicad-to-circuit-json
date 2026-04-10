@@ -337,7 +337,9 @@ export function App() {
   )
 }
 
-function stripRoutesForSimpleRouteExport(circuitJson: CircuitJson): CircuitJson {
+function stripRoutesForSimpleRouteExport(
+  circuitJson: CircuitJson,
+): CircuitJson {
   return circuitJson.filter(
     (element) =>
       element?.type !== "pcb_trace" &&
