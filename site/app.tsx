@@ -135,7 +135,7 @@ export function App() {
           "@tscircuit/core"
         )
         nextSimpleRouteJson = getSimpleRouteJsonFromCircuitJson({
-          circuitJson: nextCircuitJson,
+          circuitJson: stripRoutesForSimpleRouteExport(nextCircuitJson),
         }).simpleRouteJson
       } catch (error) {
         nextWarnings.push(
@@ -334,6 +334,15 @@ export function App() {
         )}
       </section>
     </main>
+  )
+}
+
+function stripRoutesForSimpleRouteExport(circuitJson: CircuitJson): CircuitJson {
+  return circuitJson.filter(
+    (element) =>
+      element?.type !== "pcb_trace" &&
+      element?.type !== "pcb_copper_pour" &&
+      element?.type !== "pcb_via",
   )
 }
 
