@@ -2,7 +2,6 @@ import type { Footprint } from "kicadts"
 import { applyToPoint } from "transformation-matrix"
 import type { ConverterContext } from "../../../types"
 import { getComponentLayer } from "./layer-utils"
-import { getTextValue } from "./text-utils"
 import { processPads } from "./process-pads"
 import { processFootprintText } from "./process-text"
 import { processFootprintGraphics } from "./process-graphics"
@@ -10,6 +9,10 @@ import {
   inferComponentType,
   inferTransistorTypeFromFootprint,
 } from "./infer-component-type"
+import {
+  findFootprintPropertyValue,
+  parseSupplierPartNumbers,
+} from "./footprint-properties"
 
 /**
  * Processes a complete footprint and creates all associated Circuit JSON elements
@@ -31,6 +34,7 @@ export function processFootprint(ctx: ConverterContext, footprint: Footprint) {
   // Get the reference and value from footprint properties
   const refdes = getFootprintReference(footprint)
   const value = getFootprintValue(footprint)
+  const jlcpcbPartNumbers = getJlcpcbPartNumbers(footprint)
 
   // Infer component type from reference prefix
   const ftype = inferComponentType(refdes)
@@ -47,6 +51,12 @@ export function processFootprint(ctx: ConverterContext, footprint: Footprint) {
       footprint,
       value,
     )
+  }
+
+  if (jlcpcbPartNumbers) {
+    sourceComponentData.supplier_part_numbers = {
+      jlcpcb: jlcpcbPartNumbers,
+    }
   }
 
   // Add type-specific value properties based on ftype
@@ -107,18 +117,8 @@ export function processFootprint(ctx: ConverterContext, footprint: Footprint) {
  * Extracts the reference designator from a footprint (e.g., "R1", "C2", "U3")
  */
 function getFootprintReference(footprint: Footprint): string | undefined {
-  // Try to get reference from properties first
-  const properties = footprint.properties || []
-  const propertyArray = Array.isArray(properties) ? properties : [properties]
-
-  for (const property of propertyArray) {
-    if (
-      (property as any).key === "Reference" ||
-      (property as any).name === "Reference"
-    ) {
-      return (property as any).value
-    }
-  }
+  const propertyValue = findFootprintPropertyValue(footprint, "Reference")
+  if (propertyValue) return propertyValue
 
   // Fallback: try fpTexts
   const textItems = footprint.fpTexts || []
@@ -138,18 +138,8 @@ function getFootprintReference(footprint: Footprint): string | undefined {
  * Extracts the value from a footprint (e.g., "10k", "100nF", "STM32")
  */
 function getFootprintValue(footprint: Footprint): string | undefined {
-  // Try to get value from properties first
-  const properties = footprint.properties || []
-  const propertyArray = Array.isArray(properties) ? properties : [properties]
-
-  for (const property of propertyArray) {
-    if (
-      (property as any).key === "Value" ||
-      (property as any).name === "Value"
-    ) {
-      return (property as any).value
-    }
-  }
+  const propertyValue = findFootprintPropertyValue(footprint, "Value")
+  if (propertyValue) return propertyValue
 
   // Fallback: try fpTexts
   const textItems = footprint.fpTexts || []
@@ -162,4 +152,13 @@ function getFootprintValue(footprint: Footprint): string | undefined {
   }
 
   return undefined
+}
+
+function getJlcpcbPartNumbers(footprint: Footprint): string[] | undefined {
+  return parseSupplierPartNumbers(
+    findFootprintPropertyValue(footprint, [
+      "JLCPCB Part #",
+      "Supplier Part Number",
+    ]),
+  )
 }
