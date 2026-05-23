@@ -68,6 +68,8 @@ interface TraceRoutePointVia {
 }
 
 type TraceRoutePoint = TraceRoutePointWire | TraceRoutePointVia
+type NetTraceKey = string
+type SourceTraceId = string
 
 interface PcbTraceConnectivityNode {
   key: string
@@ -83,6 +85,10 @@ interface PcbTraceConnectivityNode {
 export class CollectTracesStage extends ConverterStage {
   private readonly PORT_MATCH_TOLERANCE = 1e-3
   private readonly POINT_KEY_PRECISION = 1e6
+  private readonly sourceTraceIdByNetTraceKey = new Map<
+    NetTraceKey,
+    SourceTraceId
+  >()
 
   step(): boolean {
     if (
@@ -770,12 +776,37 @@ export class CollectTracesStage extends ConverterStage {
       netNum !== null
         ? (this.ctx.netNumToName?.get(netNum) ?? `Net-${netNum}`)
         : undefined
+    const netTraceKey = this.getNetTraceKey({
+      sourceNetId,
+      connectedSourcePortIds,
+    })
+    const existingSourceTraceId =
+      this.sourceTraceIdByNetTraceKey.get(netTraceKey)
+    if (existingSourceTraceId) {
+      return existingSourceTraceId
+    }
+
     const sourceTrace = this.ctx.db.source_trace.insert({
       connected_source_port_ids: connectedSourcePortIds,
       connected_source_net_ids: [sourceNetId],
       display_name: netName,
     })
 
+    this.sourceTraceIdByNetTraceKey.set(
+      netTraceKey,
+      sourceTrace.source_trace_id,
+    )
+
     return sourceTrace.source_trace_id
+  }
+
+  private getNetTraceKey({
+    sourceNetId,
+    connectedSourcePortIds,
+  }: {
+    sourceNetId: string
+    connectedSourcePortIds: string[]
+  }) {
+    return `${sourceNetId}:${[...connectedSourcePortIds].sort().join("|")}`
   }
 }
